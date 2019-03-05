@@ -6,29 +6,34 @@
 # Methods are listed alphabetically within a class.
 from EZCAD3 import *
 
-# 10 inches of tape measure: 1070-68 = 1002 # i.e. each pix is .01in
-
-# Rail Pitch: Notes
-# Rail 1 edge values: 11 and 45
-# Rail 1 center: (11+45)/2 = 28
-# Rail 2 edge values: 1076 and 1110
-# Rail 2 center: (1076 + 1110)/2 = 1093
-# Rail center to rail center: 1093 - 28 = 1065
-
-# Hole centers along rail:
-# 155 - 37 => 1.55in - 0.37in => 29.972mm => 30mm
+# The image in `tray_bottom.pdf` is used to get the rail-to-rail distance and the
+# hole to hole distance.  The tray was placed in a scanner along with a tape measure
+# and scanned at 1000dpi.
+#
+# Tape maesure pixel offset at 1 inch is 1070.
+# Tape measure pixel offset at 11 inches is 68.
+# 10 inches of tape measure: 1070-68 = 1002 (i.e. each pixel is .01in.)
+#
+# The left rail pixel values are 11 and 45.
+# The right rail pixel values are 107 and 1110.
+# The left rail center pixel is (11+45)/2 = 28.
+# The right rail center pixel is (1076+1110)/2 = 1093.
+# The rail to rail center is 1093 - 28 = 1065 => 10.65in => 270.5mm.
+#
+# The pixel values for a couple of hole centers are 155 and 37.
+# The hole pitch is 155 - 37 = 118 => 1.18in => 29.972mm => 30mm.
 
 class Channel:
     """ *Channel*: Represents the information about the cut tape channel.
     """
 
     def __init__(self,
-      tape_width, tape_length, tape_edge_depth, pocket_width, pocket_depth, pocket_offset):
+      tape_width, full_length, tape_edge_depth, pocket_width, pocket_depth, pocket_offset):
 	""" *Channel*:  Initialize the *Channel* object (i.e. *self*).
 
 	The arguments are:
 	* *tape_width*: Width of the tape in millimeters.
-	* *tape_length*: Length of the tap in millimeters.
+	* *full_length*: *True* for a full length channel and *False* for a partial length channel.
 	* *tape_edge_depth*: Depth of the tape edge in millimeters.
 	* *pocket_width*: Width of component pocket in millimeters in Y direction.
 	* *pocket_depth*: Depth of component pocket in millimeters.
@@ -38,7 +43,7 @@ class Channel:
 
 	# Verify argument types:
 	assert isinstance(tape_width, float)
-	assert isinstance(tape_length, L)
+	assert isinstance(full_length, bool)
 	assert isinstance(tape_edge_depth, L)
 	assert isinstance(pocket_width, float)
 	assert isinstance(pocket_depth, float)
@@ -47,7 +52,7 @@ class Channel:
 	# Stuff values into *channel* object (i.e. *self*):
 	channel = self
 	channel.tape_width_l      = L(mm=tape_width)
-	channel.tape_length_l     = tape_length
+	channel.full_length_l     = full_length
 	channel.tape_edge_depth_l = tape_edge_depth
 	channel.pocket_width_l    = L(mm=pocket_width)
 	channel.pocket_depth_l    = L(mm=pocket_depth)
@@ -68,8 +73,10 @@ class Frame(Part):
 	Part.__init__(frame, up, name)
 
 	# Create the various portions of the *frame*:
-	frame.east_rail_ = Rail(frame, "East_Rail", True)
-	frame.west_rail_ = Rail(frame, "West_Rail", False)
+	frame.east_rail_      = Rail(frame,      "East_Rail",      True)
+	frame.west_rail_      = Rail(frame,      "West_Rail",      False)
+	frame.east_rail_base_ = Rail_Base(frame, "East_Rail_Base", True)
+	frame.west_rail_base_ = Rail_Base(frame, "West_Rail_Base", False)
 
     def construct(self):
 	""" *Frame*: Construct the *Frame* assembly object (i.e. *self*.)
@@ -77,12 +84,12 @@ class Frame(Part):
 
 	# Specify various frame constants here:
 	frame = self
-	frame.rail_dx_l        = rail_dx        = L(mm=9.00)
-	frame.rail_dx_pitch_l  = rail_dx_pitch  = L(mm=216.0) + rail_dx
-	frame.rail_dy_l        = rail_dy        = L(mm=325.0)
 	frame.holes_pitch_dy_l = holes_pitch_dy = L(mm=30.00)
-	frame.rail_top_z_l     = rail_top_z     = L(mm=-4.00)
+	frame.rail_dy_l        = rail_dy        = L(mm=325.0)
 	frame.holes_dy_l       = holes_dy     = float(int(rail_dy/holes_pitch_dy)) * holes_pitch_dy
+	frame.rail_dx_l        = rail_dx        = L(mm=9.00)
+	frame.rail_dx_pitch_l  = rail_dx_pitch  = L(mm=270.5)
+	frame.rail_top_z_l     = rail_top_z     = L(mm=-4.00)
 
 class Rail(Part):
     """ *Rail*: Represents one of the rails.
@@ -194,16 +201,147 @@ class Rail(Part):
 	frame = rail.up
 	
 	# Compute the resulting *y* and return it:
-	holes_pitch_dy = frame.holes_pitch_dy_l
-	holes_dy       = frame.holes_dy_l
-	y = -holes_dy/2 + hole_index * holes_pitch_dy
+	frame_holes_pitch_dy = frame.holes_pitch_dy_l
+	frame_holes_dy       = frame.holes_dy_l
+	y = -frame_holes_dy/2 + hole_index * frame_holes_pitch_dy
 	return y
+
+class Rail_Base(Part):
+    """ *Rail_Base*: Represents one of the screw attach bases under the rails.
+    """
+
+    def __init__(self, up, name, is_east):
+	""" *Rail*: Initialize the *Rail* object (i.e. *self*.)
+	"""
+
+	# Standard initialization sequence:
+	rail_base = self
+	assert isinstance(up, Part) or up == None
+	assert isinstance(name, str) and not ' ' in name
+	assert isinstance(is_east, bool)
+	Part.__init__(rail_base, up, name)
+
+	# Hang onto the *is_east*:
+	rail_base.is_east_b = is_east
+
+    def construct(self):
+	""" *Rail_Base*: Construct the *Rail_Base* object (i.e. *self*.)
+	"""
+
+	# Grab *is_east* from *rail_base* (i.e. *self*):
+	rail_base = self
+	is_east              = rail_base.is_east_b
+
+	# Grab some *Part*'s:
+	frame     = rail_base.up
+	east_rail = frame.east_rail_
+	west_rail = frame.west_rail_
+	rail      = east_rail if is_east else west_rail
+
+	# Grab some values from *Part*'s:
+	rail_dx              = rail.dx
+	frame_holes_pitch_dy = frame.holes_pitch_dy_l
+	frame_holes_dy       = frame.holes_dy_l
+
+	# There is a spacer at *spacer_hole_index*:
+	spacer_hole_index = 2
+	spacer_diameter = L(mm=7.00)
+	spacer_radius   = spacer_diameter/2
+
+	# Define some X coordinates:
+	dx = L(inch="1/2")
+	center_x = east_rail.c.x if is_east else west_rail.c.x
+	x10 = center_x + dx/2
+	x8  = rail.e.x
+	x7  = center_x + spacer_radius
+	x5  = center_x
+	x3  = center_x - spacer_radius
+	x2  = rail.w.x
+	x0  = center_x - dx/2
+
+	# Define some Y coordinates:
+	rail = east_rail if is_east else west_rail
+	center_y = rail.c.y
+	y10 = rail.n.y
+	y4  = -frame_holes_dy/2 + 2 * frame_holes_pitch_dy + spacer_radius
+	y3  = -frame_holes_dy/2 + 2 * frame_holes_pitch_dy - spacer_radius
+	y2  = -frame_holes_dy/2
+	y0  = rail.s.y
+	
+	# Define some Z coordinates:
+	dz  = L(mm=12.62)
+	z10 = rail.b.z + spacer_radius
+	z9  = rail.b.z
+	z5  = -L(inch="1/2") # Bottom edge of *Tray* objects.
+	z1  = z9 - dz
+	z0  = z9 - dz - spacer_radius
+
+	# Start with a block of *material*:
+	material = Material("Plastic", "HDPE")
+	color = Color("white")
+	corner1 = P(x0,  y0,  z1)
+	corner2 = P(x10, y10, z9)
+	rail_base.block("Rail_Base_Block", material, color, corner1, corner2, "")
+
+	# Mount *rail_base* into a vice, drill the tooling plate holes and mount on tooling plate:
+	extra_dx = L(inch="1/4")
+	extra_dy = L(inch="1/4")
+
+	# We will need mill out a slot on the inside of the rail at *spacer_hole_index*.
+	# To do this we mount the *rail_base* with the inside surface point upwards:
+	columns = (0, 3, 6, 8, 10, 12, 15, 18)
+	rows = (0,)
+	if is_east:
+	    rail_base.vice_mount("East_Vice", "e", "t", "l", extra_dx, extra_dy)
+	    rail_base.tooling_plate_drill("East_Plate_Holes", columns, rows, [] )
+	    rail_base.tooling_plate_mount("East_Plate")
+	else:
+	    rail_base.vice_mount("West_Vice", "w", "t", "l", extra_dx, extra_dy)
+	    rail_base.tooling_plate_drill("West_Plate_Holes", columns, rows, [] )
+	    rail_base.tooling_plate_mount("West_Plate")
+
+	# Perform the exterior contour:
+	rail_base.rectangular_contour("Exterior_Contour", L(inch="1/16"))
+	
+	# Now mill out the 7mm spacer groove at hole index 2:
+	if is_east:
+	    corner1 = P(x0,  y3, z0)
+	    corner2 = P(x7,  y4, z10)
+	else:
+	    corner1 = P(x3,  y3, z0)
+	    corner2 = P(x10, y4, z10)
+	zero = L()
+	rail_base.simple_pocket("Spacer_Groove", corner1, corner2, zero, "")
+
+	# Remount the part with the top facing up.
+	rail_base.vice_mount("Top_Vice", "t", "n", "l")
+
+	# Remove the material to make room for the trays:
+	contour = Contour("Tray_Edge_Contour")
+	radius = L(inch="1/16")
+	contour.bend_append("NE", P(x8, y10, z1), radius)
+	contour.bend_append("SE", P(x8, y0,  z1), radius)
+	contour.bend_append("SW", P(x2, y0,  z1), radius)
+	contour.bend_append("NW", P(x2, y10, z1), radius)
+	start = P(x8, y10, z9)
+	stop  = P(x8, y10, z5)
+	extra = x2 - x0	# Amount of material being removed
+	rail_base.contour("", contour, start, stop, extra, "")
+
+	# Drill the mounting holes:
+	holes_count = int(frame_holes_dy / frame_holes_pitch_dy) + 1
+	diameter = "#2-56:thread"
+	for hole_index in range(holes_count):
+	    y = y2 + hole_index * frame_holes_pitch_dy
+	    start = P(x5, y, z9)
+	    stop  = P(x5, y, z1)	
+	    rail_base.hole("Hole {0}".format(hole_index), diameter, start, stop, "t")
 
 class SmallSMT(Part):
     """ *SmallSMT*: Represents the entir small SmallSMT pick-and-place machine of interest.
     """
 
-    def __init__(self, up, name, tray_specifications):
+    def __init__(self, up, name, tray_specifications, debug=False):
 	""" *SmallSMT*: Initialize the *SmallSMT* object (i.e. *self*.)
 	"""
 
@@ -211,11 +349,12 @@ class SmallSMT(Part):
 	small_smt = self
 	assert isinstance(up, Part) or up == None
 	assert isinstance(name, str) and not ' ' in name
+	assert isinstance(debug, bool)
 	Part.__init__(small_smt, up, name)
 
 	assert isinstance(tray_specifications, list) or isinstance(tray_specifications, tuple)
 	small_smt.frame_ = Frame(small_smt, "Frame")
-	small_smt.trays_ = Trays(small_smt, "Trays", tray_specifications)
+	small_smt.trays_ = Trays(small_smt, "Trays", tray_specifications, debug=debug)
 
     def construct(self):
 	""" *SmallSMT*: Construct the *SmallSMT* object (i.e. *self8:)
@@ -655,6 +794,29 @@ class Tray_Base(Part):
 	Part.__init__(tray_base, up, name)
 	tray_base.color_o = color
 
+    def tape_length_get(self, channel):
+        """ *Tray_Base*: Return the tape length of *channel*
+	"""
+
+	# Verify argument types:
+	assert isinstance(channel, Channel)
+
+	# Grab some *Part*'s:
+	tray_base = self
+	tray      = tray_base.up
+	trays     = tray.up
+	small_smt = trays.up
+	frame     = small_smt.frame_
+
+	# Grab some values from *frame*, *tray*, and *channel*:
+	rail_dx_pitch = frame.rail_dx_pitch_l
+	tray_dx       = tray.dx
+	full_length   = channel.full_length_l
+	
+	# Compute *tape_length* and return it:
+	tape_length = tray_dx + L(inch="1/2") if full_length else rail_dx_pitch - L(mm=16.00)
+	return tape_length
+
     def construct(self):
 	""" *Tray_Base*: Construct the *Tray_Base* object.
 	"""
@@ -767,7 +929,7 @@ class Tray_Base(Part):
 	for index, channel in enumerate(tray_channels):
 	    # Grab some values out of *channel* and *channel_y_centers*:
 	    tape_width       = channel.tape_width_l
-	    tape_length      = channel.tape_length_l
+	    tape_length      = tray_base.tape_length_get(channel)
 	    tape_edge_depth  = channel.tape_edge_depth_l
 	    pocket_width     = channel.pocket_width_l
 	    pocket_depth     = channel.pocket_width_l

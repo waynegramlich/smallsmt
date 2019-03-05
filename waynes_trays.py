@@ -9,8 +9,8 @@ def main():
     ezcad = EZCAD3(0)
 
     # Define all of the channels:
-    full_length   = L(mm=270.0)
-    normal_length = L(mm=209.0)
+    full_length   = True
+    normal_length = False
     edge_depth = L(mm=0.6)
     channel8f  = Channel(8.0,  full_length,   L(mm=0.64),  4.55,  2.40, 1.75 +  3.50)
     channel8n  = Channel(8.0,  normal_length, L(mm=0.64),  4.55,  2.40, 1.75 +  3.50)
@@ -36,12 +36,14 @@ def main():
     channels_88888 = (channel8n, channel8n, channel8f, channel8n, channel8n)
     tray_88888     = Tray_Specification("Tray_88888", 1, colors_88888, channels_88888)
 
+    # 12mm/8mm/12mm channels => "282":
     colors_282   = ("pink", "red", "dark_red")
     channels_282 = (channel12n, channel8f, channel12n)
     tray_282     = Tray_Specification("Tray_282", 1, colors_282, channels_282)
 
     # Create *tray_specifications* which is a tuple of the *Tray_Specifcation* objects:
-    tray_specifications = (tray_2, tray_88888, tray_282)
+    tray_specifications = (tray_2, )
+    #tray_specifications = (tray_2, tray_88888, tray_282)
 
     # Create the top level *small_smt* object using *tray_specifations*.
     # To disable the visualization cut-outs, set `debug` to `False`:
@@ -52,4 +54,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
