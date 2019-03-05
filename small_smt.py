@@ -203,7 +203,7 @@ class SmallSMT(Part):
     """ *SmallSMT*: Represents the entir small SmallSMT pick-and-place machine of interest.
     """
 
-    def __init__(self, up, name):
+    def __init__(self, up, name, tray_specifications):
 	""" *SmallSMT*: Initialize the *SmallSMT* object (i.e. *self*.)
 	"""
 
@@ -213,8 +213,9 @@ class SmallSMT(Part):
 	assert isinstance(name, str) and not ' ' in name
 	Part.__init__(small_smt, up, name)
 
+	assert isinstance(tray_specifications, list) or isinstance(tray_specifications, tuple)
 	small_smt.frame_ = Frame(small_smt, "Frame")
-	small_smt.trays_ = Trays(small_smt, "Trays")
+	small_smt.trays_ = Trays(small_smt, "Trays", tray_specifications)
 
     def construct(self):
 	""" *SmallSMT*: Construct the *SmallSMT* object (i.e. *self8:)
@@ -870,8 +871,85 @@ class Tray_Base(Part):
 		comment = "Rail_Pocket_{0}_{1}".format(rail_index, index)
 		tray_base.simple_pocket(comment, corner1, corner2, tool_radius, "")
 
+class Tray_Cap(Part):
+    """ *Tray_Cap*: Represents the cap covers everything when a *Tray* is being moved around.
+    """
+
+    def __init__(self, up, name, color):
+	""" *Tray_Cap: Initialize the *Tray_Cap* object (i.e. *self*.) """
+
+	# Standard initialization sequence:
+	tray_cap = self
+	assert isinstance(up, Part) or up == None
+	assert isinstance(name, str) and not ' ' in name
+	assert isinstance(color, Color)
+	Part.__init__(tray_cap, up, name)
+	tray_cap.color_o = color
+
+    def construct(self):
+        """ *Tray_Cap*: construct the *Tray_Cap* object (i.e. *self*.)
+	"""
+
+	# Grab some *Part*'s from the *Tray_Cap* object (i.e. *self*):
+	tray_cap = self
+	tray     = tray_cap.up
+	trays    = tray.up
+	tray_lid = tray.lid_
+
+	# Grap some values from the *Part*'s:
+	trays_normal_length = trays.normal_length_l
+	trays_debug         = trays.debug_b
+	tray_channels       = tray.channels_o
+	tray_dx             = tray.dx_l	
+	tray_dy             = tray.dy_l
+	tray_north_y        = tray.north_y_l
+	tray_south_y        = tray.south_y_l
+	tray_base_top_z     = tray.base_top_z_l
+	color               = tray_cap.color_o
+
+	# Define some X/Y/Z coordinates:
+	tray_lid.dz_l = dz = L(inch="1/8")
+	x10 =  tray_dx/2
+	x8  =  tray_dx/3
+	x2  = -tray_dx/3
+	x0  = -tray_dx/2
+	y_offset = L(inch="1/4")
+	y10 = tray_north_y
+	y8  = tray_north_y - y_offset
+	y2  = tray_south_y + y_offset
+	y0  = tray_south_y
+	z10 = tray_lid.t.z + dz
+	z0  = tray_lid.t.z
+
+	# Construct the original block out of *material*:
+	material = Material("Plastic", "HDPE")
+	name = tray_cap.name_get()
+	comment = "Tray_Lid_{0}".format(name)
+	corner1 = P(x0,  y0,  z0)
+	corner2 = P(x10, y10, z10)
+	zero = L()
+	tray_cap.tool_prefer("Laser_007")
+	tray_cap.block(comment, material, color, corner1, corner2, "")
+	tray_cap.vice_mount("Top_Vice", "t", "n", "", zero, zero)
+	tray_cap.rectangular_contour("Rectangular Contour", L(inch="1/16"))
+
+	# Drillthe holes to attach the "filler" pieces to the bottom of *tray_cap*:
+	tray.lid_cap_holes_drill(tray_cap,    "#2-56:close")
+
+	# Drill the various mounting holes into *tray_cap*:
+	tray.base_mount_holes_drill(tray_cap, "#2-56:pan_head")
+	tray.lid_mount_holes_drill(tray_cap,  "#2-56:pan_head")
+	tray.cap_mount_holes_drill(tray_cap,  "#2-56:close")
+
+	# Perform any requested debug visualization:
+	if trays_debug:
+	    corner_radius = L(inch="1/4")
+	    corner1 = P(x2, y2, z0)
+	    corner2 = P(x8, y8, z10)
+	    tray_cap.simple_pocket("Debug pocket", corner1, corner2, corner_radius, "t")
+
 class Tray_Lid(Part):
-    """ *Tray_Lid*: Represent the lid that holes the cut tape in place in the *Tray_Base*.
+    """ *Tray_Lid*: Represent the lid that holds the cut tape in place in the *Tray_Base*.
     """
 
     def __init__(self, up, name, color):
@@ -974,122 +1052,78 @@ class Tray_Lid(Part):
 	    corner2 = P(x8, y8, z10)
 	    tray_lid.simple_pocket("debug pocket", corner1, corner2, corner_radius, "t")
 
-class Tray_Cap(Part):
-    """ *Tray_Cap*: Represents the cap covers everything when a *Tray* is being moved around.
-    """
+class Tray_Specification:
+    """ *Tray_Specication: Represents the specications of a *Tray* object. """
 
-    def __init__(self, up, name, color):
-	""" *Tray_Cap: Initialize the *Tray_Cap* object (i.e. *self*.) """
+    def __init__(self, name, holes_span, colors, channels):
+	""" *Tray_Specification*: Initializes a *Tray_Specifcation* object.
 
-	# Standard initialization sequence:
-	tray_cap = self
-	assert isinstance(up, Part) or up == None
-	assert isinstance(name, str) and not ' ' in name
-	assert isinstance(color, Color)
-	Part.__init__(tray_cap, up, name)
-	tray_cap.color_o = color
+	The arguments are:
+	*name* (*str*): The tray name.
+	*holes_span*: The number of holes spanned.
+	*colors* (*list* or *tuple*): A list/tuple of three color string names (e.g. "red".)
+	*channels* (*list* or *tuple*: A list/tuple of the channels to have in tray.
+        """
 
-    def construct(self):
-        """ *Tray_Cap*: construct the *Tray_Cap* object (i.e. *self*.)
-	"""
-
-	# Grab some *Part*'s from the *Tray_Cap* object (i.e. *self*):
-	tray_cap = self
-	tray     = tray_cap.up
-	trays    = tray.up
-	tray_lid = tray.lid_
-
-	# Grap some values from the *Part*'s:
-	trays_normal_length = trays.normal_length_l
-	trays_debug         = trays.debug_b
-	tray_channels       = tray.channels_o
-	tray_dx             = tray.dx_l	
-	tray_dy             = tray.dy_l
-	tray_north_y        = tray.north_y_l
-	tray_south_y        = tray.south_y_l
-	tray_base_top_z     = tray.base_top_z_l
-	color               = tray_cap.color_o
-
-	# Define some X/Y/Z coordinates:
-	tray_lid.dz_l = dz = L(inch="1/8")
-	x10 =  tray_dx/2
-	x8  =  tray_dx/3
-	x2  = -tray_dx/3
-	x0  = -tray_dx/2
-	y_offset = L(inch="1/4")
-	y10 = tray_north_y
-	y8  = tray_north_y - y_offset
-	y2  = tray_south_y + y_offset
-	y0  = tray_south_y
-	z10 = tray_lid.t.z + dz
-	z0  = tray_lid.t.z
-
-	# Construct the original block out of *material*:
-	material = Material("Plastic", "HDPE")
-	name = tray_cap.name_get()
-	comment = "Tray_Lid_{0}".format(name)
-	corner1 = P(x0,  y0,  z0)
-	corner2 = P(x10, y10, z10)
-	zero = L()
-	tray_cap.tool_prefer("Laser_007")
-	tray_cap.block(comment, material, color, corner1, corner2, "")
-	tray_cap.vice_mount("Top_Vice", "t", "n", "", zero, zero)
-	tray_cap.rectangular_contour("Rectangular Contour", L(inch="1/16"))
-
-	# Drillthe holes to attach the "filler" pieces to the bottom of *tray_cap*:
-	tray.lid_cap_holes_drill(tray_cap,    "#2-56:close")
-
-	# Drill the various mounting holes into *tray_cap*:
-	tray.base_mount_holes_drill(tray_cap, "#2-56:pan_head")
-	tray.lid_mount_holes_drill(tray_cap,  "#2-56:pan_head")
-	tray.cap_mount_holes_drill(tray_cap,  "#2-56:close")
-
-	# Perform any requested debug visualization:
-	if trays_debug:
-	    corner_radius = L(inch="1/4")
-	    corner1 = P(x2, y2, z0)
-	    corner2 = P(x8, y8, z10)
-	    tray_cap.simple_pocket("Debug pocket", corner1, corner2, corner_radius, "t")
+	# Verify argument types:
+	assert isinstance(name, str) and len(name) > 0 and ' ' not in name
+	assert isinstance(holes_span, int) and holes_span >= 0
+	assert (isinstance(colors, list) or isinstance(colors, tuple)) and len(colors) == 3
+	assert (isinstance(channels, list) or isinstance(channels, tuple)) and len(channels) >= 1
+	
+	# Load values into *tray_specification* (i.e. *self*):
+	tray_specification            = self
+	tray_specification.holes_span = holes_span
+	tray_specification.colors     = colors
+	tray_specification.name       = name
+	tray_specification.channels   = channels
 
 class Trays(Part):
     """ *Trays*: Represents all of the trays.
     """
 
-    def __init__(self, up, name):
+    def __init__(self, up, name, tray_specifications, debug=False):
 	""" *Trays: Initialize the *Trays* assembly object. """
 
 	# Standard initialization sequence:
 	trays = self
 	assert isinstance(up, Part) or up == None
 	assert isinstance(name, str) and not ' ' in name
+	assert isinstance(tray_specifications, list) or isinstance(tray_specifications, tuple)
+	assert isinstance(debug, bool)
 	Part.__init__(trays, up, name)
 
 	# Some *trays* values:
 	trays.full_length_l   = full_length   = L(mm=270.0)
 	trays.normal_length_l = normal_length = L(mm=209.0)
-	trays.debug_b         = debug         = True
+	trays.debug_b         = debug
 
-	# Define all of the channels:
-	edge_depth = L(mm=0.6)
-	channel8f  = Channel(8.0, full_length,    L(mm=0.64),  4.55,  2.40, 1.75 +  3.50)
-	channel8n  = Channel(8.0, normal_length,  L(mm=0.64),  4.55,  2.40, 1.75 +  3.50)
-	channel12n = Channel(12.0, normal_length, edge_depth,  8.20,  6.40, 1.75 +  5.50)
-	channel12f = Channel(12.0, full_length,   edge_depth,  8.20,  6.40, 1.75 +  5.50)
-	channel16 = Channel(16.0, normal_length,  edge_depth, 12.10,  7.90, 1.75 +  7.50)
-	channel24 = Channel(24.0, normal_length,  edge_depth, 20.10, 11.90, 1.75 + 11.50)
+	# Iterate through *tray_specifications* creating each *Tray* object:
+	tray_names = dict()
+	hole_index = 0
+	for tray_specification in tray_specifications:
+	    # Grab the values from *tray_specification*:
+	    assert isinstance(tray_specification, Tray_Specification)
+	    name       = tray_specification.name
+	    holes_span = tray_specification.holes_span
+	    colors     = tray_specification.colors
+	    channels   = tray_specification.channels
 
-	# Finally define all the *Tray* *Part*'s:
-	colors1 = ("lime", "green", "dark_green")
-	#trays.tray1_ = Tray( trays, "Tray889", colors1, (1, 3),
-	#  (channel8n, channel8f, channel8f, channel8f, channel8n) )
-	colors2 = ("pink", "red", "dark_red")
-	#trays.tray2_ = Tray( trays, "Tray2222", colors2, (4, 6),
-	#  (channel12n, channel12f, channel12f, channel12n) )
-	colors3 = ("light_blue", "blue", "dark_blue")
-	#trays.tray3_ = Tray( trays, "Tray666", colors3, (7, 9),
-	# (channel16, channel16, channel16) )
-	colors4 = ("aqua", "medium_purple", "purple")
-	trays.tray4_ = Tray( trays, "Tray211", colors4, (10,),  (channel12n, ) )
+	    # Verify that we do not have a duplicate *name*:
+	    assert not name in tray_names
+
+	    # Create the next *tray* using the values from *tray_specification:
+	    low_high_indices = (hole_index, hole_index + holes_span)
+	    tray = Tray(trays, name, colors, low_high_indices, channels)
+
+	    # The way *EZCAD3* works, is that it will build all *Part* objects in a *Part*
+            # that have an attribute name ending in '_'.  We insert *tray* into *tray* using
+            # this naming convention:
+	    tray_attribute_name = name.lower() + '_'
+	    setattr(trays, tray_attribute_name, tray)
+	    
+	    # Bump *hole_index* to the next available hole:
+	    hole_index += holes_span + 1
 
     def construct(self):
 	""" *Trays*: Construct the *Trays* asembly object."""
@@ -1097,10 +1131,3 @@ class Trays(Part):
 	# This is a pure assembly, so there is nothing to construct:
 	pass
 
-def main():
-    ezcad = EZCAD3(0)
-    small_smt = SmallSMT(None, "SmallSMT")
-    small_smt.process(ezcad)
-
-if __name__ == "__main__":
-    main()
