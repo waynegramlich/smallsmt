@@ -404,6 +404,7 @@ class Tray(Part):
 
 	# Grab some values from *tray* (i.e. *self*):
 	tray              = self
+	name              = tray.name_get()
 	channels          = tray.channels_o
 	channel_y_centers = tray.channel_y_centers_o
 	hole_indices      = tray.hole_indices_o
@@ -455,7 +456,8 @@ class Tray(Part):
 	else:
 	    edge_gap_dy = L(mm=5.00)
 	    center_left_over = dy - 2 * edge_gap_dy - total_channels_width
-	    assert center_left_over > zero
+	    assert center_left_over > zero, \
+	      "Tray '{0}:dy={1:m} center_left_over={2:m}'".format(name, dy, center_left_over)
 	    center_gap_dy = center_left_over / (channels_size - 1)
 	    #print("dy={0:m} center_left_over={1:m} center_gap_dy={2:m}".
 	    #  format(dy, center_left_over, center_gap_dy))
@@ -540,6 +542,9 @@ class Tray(Part):
 	tray_high_hole_index = tray.high_hole_index_i
 	tray_low_hole_index  = tray.low_hole_index_i
 	part_name = part.name_get()
+
+	# Kludge: Only do the bottom holes:
+	tray_hole_indices = tray_hole_indices[:1]
 
 	# Get the top and bottom *part*:
 	z10 = part.t.z
@@ -978,6 +983,9 @@ class Tray_Base(Part):
 	  tooling_plate_columns, tooling_plate_rows, [])
 	tray_base.tooling_plate_mount("Bottom_Plate")
 
+	# Kludge: For now, only do the bottom hole:
+	tray_hole_indices = tray_hole_indices[:1]
+
 	# Do some common operations for each *rail*:
 	fastener_diameter = "#2-56:close"
 	for rail_index, rail in enumerate( [west_rail, east_rail] ):
@@ -1021,7 +1029,7 @@ class Tray_Base(Part):
 	    for index in range(hole_indices_size + 1):
 		# If *index* is 0, we do the bottom end rail pocket.
                 # If *index* is *hole_indices_size*, we do the top end rail pocket.
-		# In all other cases we do the pockts between two posts:
+		# In all other cases we do the pockets between two posts:
 		y_low  = ( tray_south_y - tool_radius if index == 0
 		  else rail.y_get(hole_indices[index - 1]) + post_radius)
 		y_high = ( tray_north_y + tool_radius if index == hole_indices_size
