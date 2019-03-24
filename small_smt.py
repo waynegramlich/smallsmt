@@ -88,7 +88,7 @@ class Frame(Part):
 	frame.rail_dy_l        = rail_dy        = L(mm=325.0)
 	frame.holes_dy_l       = holes_dy     = float(int(rail_dy/holes_pitch_dy)) * holes_pitch_dy
 	frame.rail_dx_l        = rail_dx        = L(mm=9.00)
-	frame.rail_dx_pitch_l  = rail_dx_pitch  = L(mm=270.5)
+	frame.rail_dx_pitch_l  = rail_dx_pitch  = L(mm=270.00) # L(mm=270.5)
 	frame.rail_top_z_l     = rail_top_z     = L(mm=-4.00)
 
 class Rail(Part):
@@ -588,18 +588,18 @@ class Tray(Part):
 	part_name            = part.name_get()
 
 	# Define some X/Y/Z coordinates:
-	x_offset = L(mm=5.00)
+	x_offset = L(mm=5.000)
 	x10 = part.e.x - x_offset
 	x0  = part.w.x + x_offset
 
+	y_offset = L(mm=10.00)
 	if tray_low_hole_index == tray_high_hole_index:
 	    y = rail.y_get(tray_low_hole_index)
-	    y_offset = L(mm=10.00)
 	    y10 = y + y_offset
 	    y0  = y - y_offset
 	else:
-	    y10 = rail.y_get(tray_low_hole_index)
-	    y0  = rail.y_get(tray_high_hole_index)
+	    y10 = rail.y_get(tray_low_hole_index)  + y_offset
+	    y0  = rail.y_get(tray_high_hole_index) - y_offset
 
 	z10 = part.t.z
 	z0  = part.b.z
@@ -611,6 +611,79 @@ class Tray(Part):
 		stop  = P(x, y, z0)
 		comment = "Hole_{0}_{1}_{2}".format(part_name, x_index, y_index)
 		part.hole(comment, diameter, start, stop, "t")
+
+    def id_holes_drill(self, lid_cap_base_part):
+	""" *Tray*: Drill the idenitifer holes for the tray.
+
+	The arguments are:
+	*lid_cap_base_part*: The *Part* to drill the identifier holes into
+        """
+
+	# Verify argument types:
+	is_base = isinstance(lid_cap_base_part, Tray_Base)
+	is_cap  = isinstance(lid_cap_base_part, Tray_Cap)
+	is_lid  = isinstance(lid_cap_base_part, Tray_Lid)
+	assert is_base or is_cap or is_lid
+	
+	# Grab some values from *tray* and *lid_cap_base_part*:
+	name              = lid_cap_base_part.name_get()
+	tray              = self
+	trays             = tray.up
+	channels          = tray.channels_o
+	channel_y_centers = tray.channel_y_centers_o
+	x_west            = lid_cap_base_part.w.x
+	z_bottom          = lid_cap_base_part.b.z
+	z_top             = lid_cap_base_part.t.z
+
+	for channel_index, channel in enumerate(channels):
+	    # The *tape_id* is the least significant digit of the *tape_width*:
+	    tape_width = channel.tape_width_l
+	    tape_id    = int(tape_width.millimeters()) % 10
+	    valid_tape_ids = (0, 2, 4, 6, 8)
+	    assert tape_id in valid_tape_ids, \
+	      "Tape id {0} is not one of {1}".format(tape_id, valid_tape_ids)
+
+	    # The drill *diameter* is a #52 drill matches #0-80:close and is in Wayne's drill rack:
+	    diameter = "#0-80:close"
+
+	    # Compute *y0* which is the digit holes and *y1* which is the id holes:
+	    y = channel_y_centers[channel_index]
+	    dy = L(mm=3.00)
+	    y1 = y + dy
+	    y0 = y - dy
+	    dx = L(mm=3.00)
+	    binary_digits = 4
+	    for binary_digit_index, binary_digit_power in enumerate(range(binary_digits)):
+		# Compute the *x* location of the binary digit:
+		x = x_west + ( (binary_digits - 1 - binary_digit_index) + 1) * dx
+
+		# Compute *z_stop* and *flag* for drilling holes base on *lid_cap_base_part* type:
+		if is_base:
+		    z_stop = z_top - L(mm=3.00)
+		    flags = "p"
+		elif is_cap:
+		    z_stop = z_bottom
+		    flags = "t"
+		elif is_lid:
+		    z_stop = z_bottom
+		    flags = "t"
+		else:
+		    assert False
+
+		# Drill the digit hole (always present under each digit):
+		start = P(x, y0, z_top)
+		stop  = P(x, y0, z_stop)
+		comment = "DigitHole_{0}_{1}".format(channel_index, binary_digit_index)
+		lid_cap_base_part.hole(comment, diameter, start, stop, flags)
+
+		# Only drill the id hole if it *is_one_digit*:
+		binary_digit_mask = 1 << binary_digit_power
+		is_one_digit = (tape_id & binary_digit_mask) != 0
+		if is_one_digit:
+		    start = P(x, y1, z_top)
+		    stop  = P(x, y1, z_stop)
+		    comment = "Id_Hole_{0}_{1}".format(channel_index, binary_digit_index)
+		    lid_cap_base_part.hole(comment, diameter, start, stop, flags)
 
     def lid_cap_holes_drill(self, lid_cap_part, diameter):
 	""" *Tray*: Drill the lid/cap holes that attach the "filler" pieces to the cap:
@@ -750,6 +823,10 @@ class Tray(Part):
 	part_top_z    = part.t.z
 	part_bottom_z = part.b.z
 
+	# Cache whether or not *part* is a *Tray_Base* or a *Tray_Lid*:
+	is_tray_base = isinstance(part, Tray_Base)
+	is_tray_lid  = isinstance(part, Tray_Lid)
+
 	# Drill holes for each *channel*:
 	for channel_index, channel in enumerate(channels):
 	    # Grab some values from *channel*:
@@ -762,27 +839,38 @@ class Tray(Part):
 	    # The bottom of the drill depends upon whether *part* is a *Tray_Base*
             # or not.  For a *Tray_Base*, we only want to go 2.5mm below the *tape_edge_depth*.
             # Otherwise, we want to go all the way through the lid:
-	    if isinstance(part, Tray_Base):
+	    if is_tray_base:
 		tape_bottom_depth_z = part_top_z - tape_edge_depth
 		z_drill_bottom = part_top_z - tape_edge_depth - L(mm=2.50)
 		hole_flags = "p"
-	    elif isinstance(part, Tray_Lid):
+	    elif is_tray_lid:
 		z_drill_bottom = part_bottom_z
 		hole_flags = "t"
 	    else:
 		assert False, "This should not be possible"
 
-	    # Drill 3 holes across each *channel*:
+	    # Drill holes across each *channel*:
 	    for x_index, x in enumerate(range(pins_span + 1)):
 		x = -pins_dx/2 + x_index * pin_pitch_dx
 		start = P(x, y, part_top_z)
 		stop  = P(x, y, z_drill_bottom)
-                comment = "Hole_{0}_{1}_{2}".format(part_name, channel_index, x_index)
 		#tracing = 3 if (isinstance(lid_cap_part, Tray_Lid) and channel_index == 0 and
 		#  x_index == 0 and tray_name == "Tray1" ) else -1000000
 
 		# Take the drill down to *stop* in tip mode with `"p"` flag:
-		part.hole(comment, diameter, start, stop, hole_flags) #, tracing=tracing)
+		if is_tray_base:
+	            comment = "Hole_{0}_{1}_{2}".format(part_name, channel_index, x_index)
+		    part.hole(comment, diameter, start, stop, hole_flags) #, tracing=tracing)
+		elif is_tray_lid:
+	            comment = "Pocket_{0}_{1}_{2}".format(part_name, channel_index, x_index)
+		    dx = L(mm=1.50)
+		    dy = L(mm=1.50)
+		    corner1 = P(x - dx, y - dy, part_top_z)
+		    corner2 = P(x + dx, y + dy, part_bottom_z)
+		    radius = L(inch=0.007)/2
+		    part.simple_pocket(comment, corner1, corner2, radius, hole_flags)
+		else:
+		    assert False
 
 class Tray_Base(Part):
     """ *Tray_Base*: Represents the Tray base that holes the cut tape. """
@@ -972,6 +1060,9 @@ class Tray_Base(Part):
         # for Wayne's mill:
 	tray.pin_holes_drill(tray_base, "#0-80:close")
 
+	# Drill the id holes:
+	tray.id_holes_drill(tray_base)
+
 	# Drill the cap and lid attach holes:
 	tray.cap_mount_holes_drill(tray_base, "#2-56:thread")
 	tray.lid_mount_holes_drill(tray_base, "#2-56:thread")
@@ -979,9 +1070,9 @@ class Tray_Base(Part):
 
 	# Now mount the *tray_base* bottom side up on tooling plate:
 	tray_base.vice_mount("Bottom_Vice", "b", "s", "l", extra_top_dz=extra_bottom_dz)
-	tray_base.tooling_plate_drill("Bottom_Tooling_Holes",
-	  tooling_plate_columns, tooling_plate_rows, [])
-	tray_base.tooling_plate_mount("Bottom_Plate")
+	#tray_base.tooling_plate_drill("Bottom_Tooling_Holes",
+	#  tooling_plate_columns, tooling_plate_rows, [])
+	#tray_base.tooling_plate_mount("Bottom_Plate")
 
 	# Kludge: For now, only do the bottom hole:
 	tray_hole_indices = tray_hole_indices[:1]
@@ -1103,8 +1194,11 @@ class Tray_Cap(Part):
 	tray_cap.vice_mount("Top_Vice", "t", "n", "", zero, zero)
 	tray_cap.rectangular_contour("Rectangular Contour", L(inch="1/16"))
 
-	# Drillthe holes to attach the "filler" pieces to the bottom of *tray_cap*:
+	# Drill the holes to attach the "filler" pieces to the bottom of *tray_cap*:
 	tray.lid_cap_holes_drill(tray_cap,    "#2-56:close")
+
+	# Drill the id holes:
+	tray.id_holes_drill(tray_cap)
 
 	# Drill the various mounting holes into *tray_cap*:
 	tray.base_mount_holes_drill(tray_cap, "#2-56:pan_head")
@@ -1202,13 +1296,16 @@ class Tray_Lid(Part):
 	    corner1 = P(-trays_normal_length/2, pocket_bottom_edge_y, z0)
 	    corner2 = P( trays_normal_length/2, pocket_top_edge_y,    z10)
 	    comment = "Tray '{0}' channel {1}".format(name, index)
-	    #print("corner1={0:m} corner2={1:m}".format(corner1, corner2))
 	    tray_lid.simple_pocket(comment, corner1, corner2, zero, "")
 
 	# "#0-80:thread" is same as the hole drill in the *Tray_Base*:
 	tray.pin_holes_drill(tray_lid, "#0-80:thread")
 
+	# Drill the lid cap holes:
 	tray.lid_cap_holes_drill(tray_lid,    "#2-56:thread")
+
+	# Drill the id holes:
+	tray.id_holes_drill(tray_lid)
 
 	# Drill the various mounting hiles holes for the *tray_lid*:
 	tray.base_mount_holes_drill(tray_lid, "#2-56:pan_head")

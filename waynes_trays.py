@@ -11,9 +11,10 @@ def main():
     # Define all of the channels:
     full_length   = True
     normal_length = False
-    edge_depth = L(mm=0.6)
-    channel8f  = Channel(8.0,  full_length,   L(mm=0.64),  4.55,  2.40, 1.75 +  3.50)
-    channel8n  = Channel(8.0,  normal_length, L(mm=0.64),  4.55,  2.40, 1.75 +  3.50)
+    delta         = L(mm=0.05)
+    edge_depth    = L(mm=0.6) - delta
+    channel8f  = Channel(8.0,  full_length,   L(mm=0.64) - delta,  4.55,  2.40, 1.75 +  3.50)
+    channel8n  = Channel(8.0,  normal_length, L(mm=0.64) - delta,  4.55,  2.40, 1.75 +  3.50)
     channel12f = Channel(12.0, full_length,   edge_depth,  8.20,  6.40, 1.75 +  5.50)
     channel12n = Channel(12.0, normal_length, edge_depth,  8.20,  6.40, 1.75 +  5.50)
     channel16n = Channel(16.0, normal_length, edge_depth, 12.10,  7.90, 1.75 +  7.50)
@@ -49,12 +50,15 @@ def main():
 
     # Create *tray_specifications* which is a tuple of the *Tray_Specifcation* objects:
     #tray_specifications = (tray_2, )
+    #tray_specifications = (tray_6, )
     #tray_specifications = (tray_2, tray_6)
     tray_specifications = (tray_2, tray_6, tray_888888, tray_668)
 
     # Create the top level *small_smt* object using *tray_specifations*.
     # To disable the visualization cut-outs, set `debug` to `False`:
-    small_smt = SmallSMT(None, "SmallSMT", tray_specifications, debug=True)
+    debug = False
+    #debug = True
+    small_smt = SmallSMT(None, "SmallSMT", tray_specifications, debug=debug)
 
     # Cause the system to be generated:
     small_smt.process(ezcad)
