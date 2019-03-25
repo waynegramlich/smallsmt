@@ -52,7 +52,7 @@ class Channel:
 	# Stuff values into *channel* object (i.e. *self*):
 	channel = self
 	channel.tape_width_l      = L(mm=tape_width)
-	channel.full_length_l     = full_length
+	channel.full_length_b     = full_length
 	channel.tape_edge_depth_l = tape_edge_depth
 	channel.pocket_width_l    = L(mm=pocket_width)
 	channel.pocket_depth_l    = L(mm=pocket_depth)
@@ -592,14 +592,18 @@ class Tray(Part):
 	x10 = part.e.x - x_offset
 	x0  = part.w.x + x_offset
 
-	y_offset = L(mm=10.00)
 	if tray_low_hole_index == tray_high_hole_index:
 	    y = rail.y_get(tray_low_hole_index)
-	    y10 = y + y_offset
-	    y0  = y - y_offset
+	    dy_offset = L(mm=10.00)
+	    y10 = y + dy_offset
+	    y0  = y - dy_offset
 	else:
-	    y10 = rail.y_get(tray_low_hole_index)  + y_offset
-	    y0  = rail.y_get(tray_high_hole_index) - y_offset
+	    dy_offset = L(mm=5.00)
+	    dy_offset = L(mm=3.50)
+	    y10 = part.n.y - dy_offset
+	    y0  = part.s.y + dy_offset
+	    #y10 = rail.y_get(tray_low_hole_index)  + dy_offset
+	    #y0  = rail.y_get(tray_high_hole_index) - dy_offset
 
 	z10 = part.t.z
 	z0  = part.b.z
@@ -635,6 +639,10 @@ class Tray(Part):
 	z_bottom          = lid_cap_base_part.b.z
 	z_top             = lid_cap_base_part.t.z
 
+	# The drill *diameter* is a #52 drill matches #0-80:close and is in Wayne's drill rack:
+	diameter = "#0-80:close"
+	laser_diameter = L(inch=0.0635)	# #0-80:close
+	laser_radius = laser_diameter / 2
 	for channel_index, channel in enumerate(channels):
 	    # The *tape_id* is the least significant digit of the *tape_width*:
 	    tape_width = channel.tape_width_l
@@ -642,9 +650,6 @@ class Tray(Part):
 	    valid_tape_ids = (0, 2, 4, 6, 8)
 	    assert tape_id in valid_tape_ids, \
 	      "Tape id {0} is not one of {1}".format(tape_id, valid_tape_ids)
-
-	    # The drill *diameter* is a #52 drill matches #0-80:close and is in Wayne's drill rack:
-	    diameter = "#0-80:close"
 
 	    # Compute *y0* which is the digit holes and *y1* which is the id holes:
 	    y = channel_y_centers[channel_index]
@@ -674,7 +679,11 @@ class Tray(Part):
 		start = P(x, y0, z_top)
 		stop  = P(x, y0, z_stop)
 		comment = "DigitHole_{0}_{1}".format(channel_index, binary_digit_index)
-		lid_cap_base_part.hole(comment, diameter, start, stop, flags)
+		if is_base:
+		    lid_cap_base_part.hole(comment, diameter, start, stop, flags)
+		else:
+		    lid_cap_base_part.round_pocket(comment,
+		      laser_diameter, start, stop, "", inner_diameter=laser_radius)
 
 		# Only drill the id hole if it *is_one_digit*:
 		binary_digit_mask = 1 << binary_digit_power
@@ -683,7 +692,11 @@ class Tray(Part):
 		    start = P(x, y1, z_top)
 		    stop  = P(x, y1, z_stop)
 		    comment = "Id_Hole_{0}_{1}".format(channel_index, binary_digit_index)
-		    lid_cap_base_part.hole(comment, diameter, start, stop, flags)
+		    if is_base:
+			lid_cap_base_part.hole(comment, diameter, start, stop, flags)
+		    else:
+			lid_cap_base_part.round_pocket(comment,
+			  laser_diameter, start, stop, "", inner_diameter=laser_radius)
 
     def lid_cap_holes_drill(self, lid_cap_part, diameter):
 	""" *Tray*: Drill the lid/cap holes that attach the "filler" pieces to the cap:
@@ -740,7 +753,7 @@ class Tray(Part):
 		lid_cap_part.hole(comment, diameter, start, stop, "t") #, tracing=tracing)
 
     def lid_mount_holes_drill(self, part, diameter):
-	""" *Tray*: Drill the holes to mount the *Cap_Lid* to the *Cap_Base*.
+	""" *Tray*: Drill the holes to mount the *Tray_Lid* to the *Tray_Base*.
 
 	The arguments are:
 	* *self* (i.e. *Tray*) : The *Tray* object to fetch the *Channel* objects from.
@@ -807,6 +820,7 @@ class Tray(Part):
 	# Grap some values from *tray* and *part*:
 	tray                = self
 	trays               = tray.up
+	tray_base           = tray.base_
 	channels            = tray.channels_o
 	channel_y_centers   = tray.channel_y_centers_o
 	tray_name           = tray.name_get()
@@ -815,9 +829,12 @@ class Tray(Part):
 
 	# The pin to pin spacing is 4mm.  We want to have pin alignment holes on a regular
         # basis.  5 * 4 = 20, so every 5 pin hole has an alignment hole:
+	tape_length  = tray_base.tape_length_get(channels[0], full_length=False)
 	pin_pitch_dx = L(mm=20.00)
-	pins_span = int(trays_normal_length / pin_pitch_dx)
+	pins_span = int(tape_length / pin_pitch_dx)
 	pins_dx = pins_span * pin_pitch_dx
+	print("trays_normal_length={0:m} pin_pitch_dx={1:m} pins_span={2} pins_dx={3:m}".
+	  format(trays_normal_length, pin_pitch_dx, pins_span, pins_dx))
 
 	# Figure the top and bottom of *part*:
 	part_top_z    = part.t.z
@@ -850,7 +867,7 @@ class Tray(Part):
 		assert False, "This should not be possible"
 
 	    # Drill holes across each *channel*:
-	    for x_index, x in enumerate(range(pins_span + 1)):
+	    for x_index in range(pins_span + 1):
 		x = -pins_dx/2 + x_index * pin_pitch_dx
 		start = P(x, y, part_top_z)
 		stop  = P(x, y, z_drill_bottom)
@@ -887,12 +904,13 @@ class Tray_Base(Part):
 	Part.__init__(tray_base, up, name)
 	tray_base.color_o = color
 
-    def tape_length_get(self, channel):
+    def tape_length_get(self, channel, full_length=None):
         """ *Tray_Base*: Return the tape length of *channel*
 	"""
 
 	# Verify argument types:
 	assert isinstance(channel, Channel)
+	assert isinstance(full_length, bool) or full_length == None
 
 	# Grab some *Part*'s:
 	tray_base = self
@@ -904,8 +922,9 @@ class Tray_Base(Part):
 	# Grab some values from *frame*, *tray*, and *channel*:
 	rail_dx_pitch = frame.rail_dx_pitch_l
 	tray_dx       = tray.dx
-	full_length   = channel.full_length_l
-	
+	if not isinstance(full_length, bool):
+	    full_length = channel.full_length_b
+
 	# Compute *tape_length* and return it:
 	tape_length = tray_dx + L(inch="1/2") if full_length else rail_dx_pitch - L(mm=16.00)
 	return tape_length
@@ -1016,6 +1035,25 @@ class Tray_Base(Part):
 	# the exterior contour:
 	tray_base.tooling_plate_mount("Top_Plate")
 	tray_base.top_face("Top_Face")
+
+	# Drill the pin alignment holes.  Note that "#0-80:close" is a #52 drill which is
+        # 0.635 inches in diameter  which is just a little bit bigger than 1.5mm=(.0590in)
+        # which is the pin hole diameter.  The #52 drill is premounted in a tool holder
+        # for Wayne's mill:
+	tray.pin_holes_drill(tray_base, "#0-80:close")
+
+	# Drill the id holes:
+	tray.id_holes_drill(tray_base)
+
+	# Drill the cap and lid attach holes:
+	tray.cap_mount_holes_drill(tray_base, "#2-56:thread")
+	tray.lid_mount_holes_drill(tray_base, "#2-56:thread")
+	# Note: the base mount holes are drilled after we flip the *tray_base* over:
+
+	# Force all holes to be drilled before any additional milling:
+	tray_base.cnc_fence()
+
+	# Now we can start to mill, starting with the rectangular contour:
 	tray_base.rectangular_contour("Top_Exterior_Contour", L(inch="1/16"))
 
 	# Now mill out the each *channel*:
@@ -1040,41 +1078,21 @@ class Tray_Base(Part):
 	    # Mill out a pocket that to hold the tape:
 	    corner1 = P(-tape_length/2, channel_y_center - tape_width/2, z18 - tape_edge_depth)
 	    corner2 = P( tape_length/2, channel_y_center + tape_width/2, z18)
-	    comment = "Tray '{0}' channel {1}".format(name, index)
+	    comment = "Tray '{0}' channel {1} Tape".format(name, index)
 	    #print("corner1={0:m} corner2={1:m}".format(corner1, corner2))
 	    tray_base.simple_pocket(comment, corner1, corner2, zero, "")
 
 	    # If appropriate, mill out a pocket to hold components.
-	    if pocket_width > zero:
+	    if pocket_depth > zero:
 		corner1 = P(-tape_length/2, pocket_bottom_edge_y, z18 - pocket_depth)
 		corner2 = P( tape_length/2, pocket_top_edge_y,    z18)
-		comment = "Tray '{0}' Tape channel {1}".format(name, index)
+		comment = "Tray '{0}' Tape channel {1} Pocket".format(name, index)
 		tray_base.simple_pocket(comment, corner1, corner2, zero, "")
-
-	# Make sure that the milling is done before doing the drilling:
-	tray_base.cnc_fence()
-
-	# Drill the pin alignment holes.  Note that "#0-80:close" is a #52 drill which is
-        # 0.635 inches in diameter  which is just a little bit bigger than 1.5mm=(.0590in)
-        # which is the pin hole diameter.  The #52 drill is premounted in a tool holder
-        # for Wayne's mill:
-	tray.pin_holes_drill(tray_base, "#0-80:close")
-
-	# Drill the id holes:
-	tray.id_holes_drill(tray_base)
-
-	# Drill the cap and lid attach holes:
-	tray.cap_mount_holes_drill(tray_base, "#2-56:thread")
-	tray.lid_mount_holes_drill(tray_base, "#2-56:thread")
-	# Note: the base mount holes are drilled after we flip the *tray_base* over:
 
 	# Now mount the *tray_base* bottom side up on tooling plate:
 	tray_base.vice_mount("Bottom_Vice", "b", "s", "l", extra_top_dz=extra_bottom_dz)
-	#tray_base.tooling_plate_drill("Bottom_Tooling_Holes",
-	#  tooling_plate_columns, tooling_plate_rows, [])
-	#tray_base.tooling_plate_mount("Bottom_Plate")
 
-	# Kludge: For now, only do the bottom hole:
+	# Kludge: For now, only do the bottom tray hole:
 	tray_hole_indices = tray_hole_indices[:1]
 
 	# Do some common operations for each *rail*:
@@ -1232,9 +1250,10 @@ class Tray_Lid(Part):
 	"""
 
 	# Grab some *Part*'s from the *Tray_Lid* object (i.e. *self*):
-	tray_lid = self
-	tray     = tray_lid.up
-	trays    = tray.up
+	tray_lid  = self
+	tray      = tray_lid.up
+	trays     = tray.up
+	tray_base = tray.base_
 
 	# Grap some values from the *Part*'s:
 	trays_normal_length    = trays.normal_length_l
@@ -1280,6 +1299,7 @@ class Tray_Lid(Part):
 	    # Grab some values out of *channel* and *channel_y_centers*:
 	    tape_width       = channel.tape_width_l
 	    tape_edge_depth  = channel.tape_edge_depth_l
+	    tape_length      = tray_base.tape_length_get(channel, full_length=False)
 	    pocket_width     = channel.pocket_width_l
 	    pocket_depth     = channel.pocket_width_l
 	    pocket_offset    = channel.pocket_offset_l
@@ -1293,8 +1313,12 @@ class Tray_Lid(Part):
 	    pocket_bottom_edge_y = tape_top_edge_y - pocket_offset - pocket_width/2
 
 	    # Mill out a pocket that to hold the tape:
-	    corner1 = P(-trays_normal_length/2, pocket_bottom_edge_y, z0)
-	    corner2 = P( trays_normal_length/2, pocket_top_edge_y,    z10)
+	    if pocket_width > zero:
+		corner1 = P(-tape_length/2, pocket_bottom_edge_y, z0)
+		corner2 = P( tape_length/2, pocket_top_edge_y,    z10)
+	    else:
+		corner1 = P(-tape_length/2, tape_bottom_edge_y, z0)
+		corner2 = P( tape_length/2, tape_top_edge_y,    z10)
 	    comment = "Tray '{0}' channel {1}".format(name, index)
 	    tray_lid.simple_pocket(comment, corner1, corner2, zero, "")
 
